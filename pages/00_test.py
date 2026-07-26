@@ -1,6 +1,5 @@
 import streamlit as st
-import pandas as pd
-import plotly.express as px
+import random
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정
@@ -14,7 +13,6 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 # 2. 기초 데이터 수립 (2017 ~ 2024 실데이터 및 연도별 주요 사건)
 # -----------------------------------------------------------------------------
-# 데이터 기준: 한국 무역통계 기준 경향성 (단위: 억 달러)
 HISTORICAL_DATA = {
     2017: {"수출": 5737, "수입": 4784, "GDP성장률": 3.2},
     2018: {"수출": 6049, "수입": 5352, "GDP성장률": 2.9},
@@ -32,63 +30,56 @@ YEAR_EVENTS = {
         "desc": "미국과 중국의 관세 폭탄전으로 글로벌 공급망이 흔들리고 물동량 증가세가 둔화됩니다.",
         "export_mod": 1.05,
         "import_mod": 1.08,
-        "risk_mod": 1.1
     },
     2019: {
         "title": "📉 글로벌 반도체 단가 급락 및 한일 무역 갈등",
         "desc": "메모리 반도체 가격 폭락과 일본의 핵심 소재 수출 규제로 IT·무역 부문이 직격탄을 맞습니다.",
         "export_mod": 0.90,
         "import_mod": 0.95,
-        "risk_mod": 1.2
     },
     2020: {
         "title": "🦠 코로나19 팬데믹 쇼크",
         "desc": "전 세계 봉쇄령(Lockdown)으로 국경이 닫히고 세계 교역량이 국면 상 최저치로 폭락합니다.",
         "export_mod": 0.85,
         "import_mod": 0.88,
-        "risk_mod": 1.5
     },
     2021: {
         "title": "🚀 보상 소비 폭발 & 해상 운임 급증",
         "desc": "각국의 경기 부양책과 유동성 공급으로 글로벌 수요가 폭발하나 물류 병목 현상으로 운임이 폭등합니다.",
         "export_mod": 1.25,
         "import_mod": 1.20,
-        "risk_mod": 0.9
     },
     2022: {
         "title": "🛢️ 러시아-우크라이나 전쟁 & 원자재 쇼크",
         "desc": "에너지 및 곡물 가격 폭등으로 수입 비용이 급증하고 고물가·고금리 기조가 시작됩니다.",
         "export_mod": 1.05,
         "import_mod": 1.28,
-        "risk_mod": 1.4
     },
     2023: {
         "title": "🏦 고금리 장기화 & 중국 경기 회복 지연",
         "desc": "글로벌 긴축 재정 지속과 핵심 수출국인 중국의 경기 회복 지연으로 교역이 다시 둔화됩니다.",
         "export_mod": 0.92,
         "import_mod": 0.90,
-        "risk_mod": 1.1
     },
     2024: {
         "title": "🤖 AI 반도체 붐 & 홍해 물류 위기",
         "desc": "AI 산업 급성장으로 반도체 수출이 반등하지만 중동 지정학 위기로 해상 우회 운송 비용이 발생합니다.",
         "export_mod": 1.15,
         "import_mod": 1.02,
-        "risk_mod": 1.0
     }
 }
 
 ITEMS = {
-    "반도체/전자": {"base_margin": 0.25, "volatility": 0.15},
-    "자동차/배터리": {"base_margin": 0.18, "volatility": 0.08},
-    "석유화학/에너지": {"base_margin": 0.12, "volatility": 0.25},
-    "식품/농산물": {"base_margin": 0.08, "volatility": 0.05}
+    "반도체/전자": {"base_margin": 0.25},
+    "자동차/배터리": {"base_margin": 0.18},
+    "석유화학/에너지": {"base_margin": 0.12},
+    "식품/농산물": {"base_margin": 0.08}
 }
 
 # -----------------------------------------------------------------------------
-# 3. 세션 상태(Session State) 관리
+# 3. 세션 상태(Session State) 관리 (초기 자본: 100억원)
 # -----------------------------------------------------------------------------
-BASE_CAPITAL = 100.0  # 기본 자본 100억원
+BASE_CAPITAL = 100.0
 
 if "game_started" not in st.session_state:
     st.session_state.game_started = False
@@ -105,7 +96,7 @@ if "history" not in st.session_state:
 st.title("🛳️ 8개년 글로벌 무역 시뮬레이터 (2018~2024)")
 st.caption("2017년 실적 기준 기본 자본 100억원으로 시작하여, 7년간의 거시 경제 파도를 극복하세요!")
 
-# 대시보드 상단 요약
+# 상단 현황판
 col_a, col_b, col_c, col_d = st.columns(4)
 col_a.metric("현재 자산", f"{st.session_state.capital:,.1f} 억원", 
              f"{st.session_state.capital - BASE_CAPITAL:,.1f} 억원" if st.session_state.game_started else "0 억원")
@@ -116,7 +107,7 @@ col_d.metric("기준 연도 데이터(2017)", f"수출 {HISTORICAL_DATA[2017]['�
 
 st.markdown("---")
 
-# 게임 종료 조건 검사
+# 게임 종료 화면
 if st.session_state.current_turn > 7:
     st.balloons()
     st.success("🎉 축하합니다! 7개년(2018년~2024년) 무역 경영을 모두 마쳤습니다.")
@@ -124,14 +115,9 @@ if st.session_state.current_turn > 7:
     profit_rate = ((st.session_state.capital - BASE_CAPITAL) / BASE_CAPITAL) * 100
     st.subheader(f"📊 최종 성과: 자산 {st.session_state.capital:,.1f}억원 (수익률: {profit_rate:+.2f}%)")
     
-    df_history = pd.DataFrame(st.session_state.history)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.dataframe(df_history[["연도", "선택전략", "주요품목", "투자액(억)", "수익(억)", "최종자산(억)"]], use_container_width=True)
-    with col2:
-        fig = px.line(df_history, x="연도", y="최종자산(억)", title="연도별 자산 추이", markers=True)
-        st.plotly_chart(fig, use_container_width=True)
+    # 순수 파이썬 기본 리스트로 표 출력
+    st.subheader("📜 최종 무역 기록")
+    st.write(st.session_state.history)
         
     if st.button("게임 다시 시작하기"):
         st.session_state.game_started = False
@@ -140,6 +126,7 @@ if st.session_state.current_turn > 7:
         st.session_state.history = []
         st.rerun()
 
+# 게임 진행 화면
 else:
     event = YEAR_EVENTS[current_year]
     
@@ -175,7 +162,7 @@ else:
                 help="보유 자금 중 얼마를 이번 무역 건에 투입할지 결정합니다."
             )
             
-        submit = st.form_submit_button("무역 실행 및 턴 종료")
+        submit = st.form_submit_button("무역 실행 및 턴 진행")
         
     if submit:
         st.session_state.game_started = True
@@ -184,6 +171,7 @@ else:
         
         margin = item_info["base_margin"]
         
+        # 전략과 연도별 사건에 따른 마진 계산
         if "수출" in strategy:
             margin *= event["export_mod"]
         elif "수입" in strategy:
@@ -199,20 +187,21 @@ else:
         
         st.session_state.capital += profit
         
+        # 기본 딕셔너리로 히스토리 저장
         st.session_state.history.append({
-            "연도": current_year,
-            "선택전략": strategy,
-            "주요품목": item,
-            "투자액(억)": round(invest_amount, 1),
-            "수익(억)": round(profit, 1),
-            "최종자산(억)": round(st.session_state.capital, 1)
+            "연도": f"{current_year}년",
+            "전략": strategy,
+            "품목": item,
+            "투자액": f"{round(invest_amount, 1)}억원",
+            "수익": f"{round(profit, 1)}억원",
+            "최종자산": f"{round(st.session_state.capital, 1)}억원"
         })
         
         st.session_state.current_turn += 1
         st.rerun()
 
-# 기록 테이블
+# 진행 중 기록 표시
 if st.session_state.history:
     st.markdown("---")
     st.subheader("📜 지금까지의 무역 기록")
-    st.table(pd.DataFrame(st.session_state.history))
+    st.write(st.session_state.history)
