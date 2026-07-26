@@ -1,434 +1,218 @@
-# run.py
-import random
+import streamlit as st
+import pandas as pd
+import plotly.express as px
 
-# ----------------------------------------------------
-# Market System
-# ----------------------------------------------------
-class Market:
-    def __init__(self):
-        self.countries = {
-            "중국": {"GDP": 18000, "export": 3500},
-            "미국": {"GDP": 28000, "export": 2000},
-            "한국": {"GDP": 1800, "export": 700},
-            "일본": {"GDP": 4200, "export": 900},
-            "독일": {"GDP": 4500, "export": 1700},
-            "네덜란드": {"GDP": 1100, "export": 900}
-        }
-        self.products = {
-            "반도체": {"price": 10000, "demand": 90},
-            "자동차": {"price": 30000, "demand": 70},
-            "석유": {"price": 5000, "demand": 80},
-            "농산물": {"price": 3000, "demand": 60},
-            "배터리": {"price": 15000, "demand": 85}
-        }
+# -----------------------------------------------------------------------------
+# 1. 페이지 설정
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="8개년 글로벌 무역 시뮬레이터",
+    page_icon="🛳️",
+    layout="wide"
+)
 
-    def show_products(self):
-        print("\n===== 현재 시장 =====")
-        for name, data in self.products.items():
-            print(f"{name} | 가격: {data['price']:,}원 | 수요: {data['demand']}%")
+# -----------------------------------------------------------------------------
+# 2. 기초 데이터 수립 (2017 ~ 2024 실데이터 및 연도별 주요 사건)
+# -----------------------------------------------------------------------------
+# 데이터 기준: 한국 무역통계 기준 경향성 (단위: 억 달러)
+HISTORICAL_DATA = {
+    2017: {"수출": 5737, "수입": 4784, "GDP성장률": 3.2},
+    2018: {"수출": 6049, "수입": 5352, "GDP성장률": 2.9},
+    2019: {"수출": 5422, "수입": 5033, "GDP성장률": 2.2},
+    2020: {"수출": 5125, "수입": 4676, "GDP성장률": -0.7},
+    2021: {"수출": 6444, "수입": 6151, "GDP성장률": 4.3},
+    2022: {"수출": 6836, "수입": 7312, "GDP성장률": 2.6},
+    2023: {"수출": 6327, "수입": 6427, "GDP성장률": 1.4},
+    2024: {"수출": 6838, "수입": 6320, "GDP성장률": 2.2}
+}
 
-    def change_price(self, product, value):
-        if product in self.products:
-            self.products[product]["price"] += value
-            if self.products[product]["price"] < 100:
-                self.products[product]["price"] = 100
+YEAR_EVENTS = {
+    2018: {
+        "title": "⚡ 미·중 무역 전쟁 본격화",
+        "desc": "미국과 중국의 관세 폭탄전으로 글로벌 공급망이 흔들리고 물동량 증가세가 둔화됩니다.",
+        "export_mod": 1.05,
+        "import_mod": 1.08,
+        "risk_mod": 1.1
+    },
+    2019: {
+        "title": "📉 글로벌 반도체 단가 급락 및 한일 무역 갈등",
+        "desc": "메모리 반도체 가격 폭락과 일본의 핵심 소재 수출 규제로 IT·무역 부문이 직격탄을 맞습니다.",
+        "export_mod": 0.90,
+        "import_mod": 0.95,
+        "risk_mod": 1.2
+    },
+    2020: {
+        "title": "🦠 코로나19 팬데믹 쇼크",
+        "desc": "전 세계 봉쇄령(Lockdown)으로 국경이 닫히고 세계 교역량이 국면 상 최저치로 폭락합니다.",
+        "export_mod": 0.85,
+        "import_mod": 0.88,
+        "risk_mod": 1.5
+    },
+    2021: {
+        "title": "🚀 보상 소비 폭발 & 해상 운임 급증",
+        "desc": "각국의 경기 부양책과 유동성 공급으로 글로벌 수요가 폭발하나 물류 병목 현상으로 운임이 폭등합니다.",
+        "export_mod": 1.25,
+        "import_mod": 1.20,
+        "risk_mod": 0.9
+    },
+    2022: {
+        "title": "🛢️ 러시아-우크라이나 전쟁 & 원자재 쇼크",
+        "desc": "에너지 및 곡물 가격 폭등으로 수입 비용이 급증하고 고물가·고금리 기조가 시작됩니다.",
+        "export_mod": 1.05,
+        "import_mod": 1.28,
+        "risk_mod": 1.4
+    },
+    2023: {
+        "title": "🏦 고금리 장기화 & 중국 경기 회복 지연",
+        "desc": "글로벌 긴축 재정 지속과 핵심 수출국인 중국의 경기 회복 지연으로 교역이 다시 둔화됩니다.",
+        "export_mod": 0.92,
+        "import_mod": 0.90,
+        "risk_mod": 1.1
+    },
+    2024: {
+        "title": "🤖 AI 반도체 붐 & 홍해 물류 위기",
+        "desc": "AI 산업 급성장으로 반도체 수출이 반등하지만 중동 지정학 위기로 해상 우회 운송 비용이 발생합니다.",
+        "export_mod": 1.15,
+        "import_mod": 1.02,
+        "risk_mod": 1.0
+    }
+}
 
-    def get_price(self, product):
-        if product in self.products:
-            return self.products[product]["price"]
-        return 0
+ITEMS = {
+    "반도체/전자": {"base_margin": 0.25, "volatility": 0.15},
+    "자동차/배터리": {"base_margin": 0.18, "volatility": 0.08},
+    "석유화학/에너지": {"base_margin": 0.12, "volatility": 0.25},
+    "식품/농산물": {"base_margin": 0.08, "volatility": 0.05}
+}
 
+# -----------------------------------------------------------------------------
+# 3. 세션 상태(Session State) 관리
+# -----------------------------------------------------------------------------
+BASE_CAPITAL = 100.0  # 기본 자본 100억원
 
-# ----------------------------------------------------
-# Trade System
-# ----------------------------------------------------
-class TradeSystem:
-    def __init__(self, market):
-        self.market = market
-        self.inventory = {}
+if "game_started" not in st.session_state:
+    st.session_state.game_started = False
+if "current_turn" not in st.session_state:
+    st.session_state.current_turn = 1  # 총 7턴 (2018년 ~ 2024년)
+if "capital" not in st.session_state:
+    st.session_state.capital = BASE_CAPITAL
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-    def buy(self, country, money):
-        print("\n구매 가능한 상품")
-        self.market.show_products()
-        product = input("\n구매할 상품: ")
+# -----------------------------------------------------------------------------
+# 4. 게임 화면 구현
+# -----------------------------------------------------------------------------
+st.title("🛳️ 8개년 글로벌 무역 시뮬레이터 (2018~2024)")
+st.caption("2017년 실적 기준 기본 자본 100억원으로 시작하여, 7년간의 거시 경제 파도를 극복하세요!")
 
-        if product not in self.market.products:
-            print("없는 상품입니다.")
-            return money
+# 대시보드 상단 요약
+col_a, col_b, col_c, col_d = st.columns(4)
+col_a.metric("현재 자산", f"{st.session_state.capital:,.1f} 억원", 
+             f"{st.session_state.capital - BASE_CAPITAL:,.1f} 억원" if st.session_state.game_started else "0 억원")
+col_b.metric("진행 상황", f"{st.session_state.current_turn} / 7 턴" if st.session_state.current_turn <= 7 else "완료")
+current_year = 2017 + st.session_state.current_turn if st.session_state.current_turn <= 7 else 2024
+col_c.metric("현재 연도", f"{current_year}년")
+col_d.metric("기준 연도 데이터(2017)", f"수출 {HISTORICAL_DATA[2017]['수출']}억$ / 수입 {HISTORICAL_DATA[2017]['수입']}억$")
 
-        price = self.market.get_price(product)
-        try:
-            amount = int(input("구매 수량: "))
-        except ValueError:
-            print("숫자를 입력해주세요.")
-            return money
+st.markdown("---")
 
-        cost = price * amount
-        if money < cost:
-            print("자금 부족")
-            return money
+# 게임 종료 조건 검사
+if st.session_state.current_turn > 7:
+    st.balloons()
+    st.success("🎉 축하합니다! 7개년(2018년~2024년) 무역 경영을 모두 마쳤습니다.")
+    
+    profit_rate = ((st.session_state.capital - BASE_CAPITAL) / BASE_CAPITAL) * 100
+    st.subheader(f"📊 최종 성과: 자산 {st.session_state.capital:,.1f}억원 (수익률: {profit_rate:+.2f}%)")
+    
+    df_history = pd.DataFrame(st.session_state.history)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.dataframe(df_history[["연도", "선택전략", "주요품목", "투자액(억)", "수익(억)", "최종자산(억)"]], use_container_width=True)
+    with col2:
+        fig = px.line(df_history, x="연도", y="최종자산(억)", title="연도별 자산 추이", markers=True)
+        st.plotly_chart(fig, use_container_width=True)
+        
+    if st.button("게임 다시 시작하기"):
+        st.session_state.game_started = False
+        st.session_state.current_turn = 1
+        st.session_state.capital = BASE_CAPITAL
+        st.session_state.history = []
+        st.rerun()
 
-        money -= cost
-        self.inventory[product] = self.inventory.get(product, 0) + amount
-        print(f"{product} {amount}개 구매 완료")
-        return money
+else:
+    event = YEAR_EVENTS[current_year]
+    
+    st.warning(f"### {current_year}년 주요 국제 사건: {event['title']}")
+    st.write(f"**상황 설명:** {event['desc']}")
+    
+    prev_year = current_year - 1
+    st.info(f"💡 **참고 (실제 국가 통계):** {prev_year}년 대비 {current_year}년 실제 한국 무역 수지 추이 → "
+            f"수출: {HISTORICAL_DATA[current_year]['수출']}억$ ({HISTORICAL_DATA[current_year]['수출'] - HISTORICAL_DATA[prev_year]['수출']:+}억$) | "
+            f"수입: {HISTORICAL_DATA[current_year]['수입']}억$ ({HISTORICAL_DATA[current_year]['수입'] - HISTORICAL_DATA[prev_year]['수입']:+}억$)")
+    
+    st.markdown("### 🎲 무역 전략 수립")
+    
+    with st.form("trade_form"):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            strategy = st.selectbox(
+                "무역 방향 선택",
+                ["수출 중심 (공급망 확장)", "수입 중심 (원자재 확보)", "균형 무역 (위험 분산)"]
+            )
+            
+        with col2:
+            item = st.selectbox(
+                "주요 무역 품목 선택",
+                list(ITEMS.keys())
+            )
+            
+        with col3:
+            invest_ratio = st.slider(
+                "투입 자본 비율 (%)",
+                min_value=10, max_value=100, value=50, step=10,
+                help="보유 자금 중 얼마를 이번 무역 건에 투입할지 결정합니다."
+            )
+            
+        submit = st.form_submit_button("무역 실행 및 턴 종료")
+        
+    if submit:
+        st.session_state.game_started = True
+        invest_amount = st.session_state.capital * (invest_ratio / 100.0)
+        item_info = ITEMS[item]
+        
+        margin = item_info["base_margin"]
+        
+        if "수출" in strategy:
+            margin *= event["export_mod"]
+        elif "수입" in strategy:
+            margin *= (2.0 - event["import_mod"])
+        else:
+            margin *= (event["export_mod"] + event["import_mod"]) / 2.0
+            
+        gdp_effect = (HISTORICAL_DATA[current_year]["GDP성장률"] / 100.0)
+        final_return_rate = margin + gdp_effect
+        
+        earned = invest_amount * (1 + final_return_rate)
+        profit = earned - invest_amount
+        
+        st.session_state.capital += profit
+        
+        st.session_state.history.append({
+            "연도": current_year,
+            "선택전략": strategy,
+            "주요품목": item,
+            "투자액(억)": round(invest_amount, 1),
+            "수익(억)": round(profit, 1),
+            "최종자산(억)": round(st.session_state.capital, 1)
+        })
+        
+        st.session_state.current_turn += 1
+        st.rerun()
 
-    def sell(self, country, money):
-        if not self.inventory:
-            print("판매할 상품 없음")
-            return money
-
-        print("\n보유 상품")
-        for item, amount in self.inventory.items():
-            print(f"{item}: {amount}개")
-
-        product = input("판매할 상품: ")
-        if product not in self.inventory or self.inventory[product] <= 0:
-            print("보유하지 않은 상품")
-            return money
-
-        try:
-            amount = int(input("판매 수량: "))
-        except ValueError:
-            print("숫자를 입력해주세요.")
-            return money
-
-        if amount > self.inventory[product]:
-            print("수량 부족")
-            return money
-
-        price = self.market.get_price(product)
-        income = price * amount
-        money += income
-        self.inventory[product] -= amount
-        print(f"{product} {amount}개 판매 +{income:,}원")
-        return money
-
-
-# ----------------------------------------------------
-# Event & News
-# ----------------------------------------------------
-class EventSystem:
-    def __init__(self, market):
-        self.market = market
-        self.events = [
-            {"name": "세계 반도체 부족 발생", "effect": {"반도체": 5000}},
-            {"name": "국제 유가 상승", "effect": {"석유": 3000}},
-            {"name": "세계 경기 침체", "effect": {"자동차": -5000, "농산물": 1000}},
-            {"name": "친환경 산업 성장", "effect": {"배터리": 4000}},
-            {"name": "무역 갈등 발생", "effect": {"반도체": -3000, "자동차": -2000}}
-        ]
-
-    def random_event(self):
-        event = random.choice(self.events)
-        print("\n🌍 세계 이벤트 발생!")
-        print(event["name"])
-        for product, change in event["effect"].items():
-            self.market.change_price(product, change)
-            print(f"{product} 가격 {'상승 +' if change > 0 else '하락 '}{change:,}원")
-
-
-class WorldNewsSystem:
-    def __init__(self, market):
-        self.market = market
-        self.news = [
-            {"title": "미국 금리 인상 발표", "effect": {"자동차": -2000, "석유": -1000}},
-            {"title": "중국 경기 부양책 발표", "effect": {"반도체": 5000, "자동차": 3000}},
-            {"title": "유럽 친환경 규제 강화", "effect": {"배터리": 7000, "석유": -4000}},
-            {"title": "글로벌 반도체 수요 증가", "effect": {"반도체": 10000}}
-        ]
-
-    def generate_news(self):
-        news = random.choice(self.news)
-        print("\n📰 WORLD ECONOMIC NEWS")
-        print("----------------------")
-        print(news["title"])
-        for product, value in news["effect"].items():
-            self.market.change_price(product, value)
-            print(f"{product} 가격 {'상승 +' if value > 0 else '하락 '}{value:,}원")
-
-
-# ----------------------------------------------------
-# Finance / Company / Tech / Govt / AI Systems
-# ----------------------------------------------------
-class FinanceSystem:
-    def __init__(self):
-        self.loan = 0
-        self.investment = 0
-
-    def borrow(self, money):
-        amount = int(input("대출 금액 입력: "))
-        self.loan += amount
-        money += amount
-        print(f"{amount:,}원 대출 완료 (부채: {self.loan:,}원)")
-        return money
-
-    def repay(self, money):
-        if self.loan == 0:
-            print("갚을 대출 없음")
-            return money
-        amount = int(input("상환 금액 입력: "))
-        if amount > money:
-            print("자금 부족")
-            return money
-        amount = min(amount, self.loan)
-        money -= amount
-        self.loan -= amount
-        print(f"{amount:,}원 상환 완료")
-        return money
-
-    def invest(self, money):
-        amount = int(input("투자 금액 입력: "))
-        if amount > money:
-            print("투자 불가능")
-            return money
-        self.investment += amount
-        money -= amount
-        print(f"{amount:,}원 투자 완료")
-        return money
-
-    def market_result(self, money):
-        if self.investment == 0:
-            print("투자 내역 없음")
-            return money
-        rate = random.randint(-20, 30)
-        result = int(self.investment * (1 + rate / 100))
-        money += result
-        print(f"투자 결과: {rate}% -> {result:,}원 회수")
-        self.investment = 0
-        return money
-
-
-class CompanySystem:
-    def __init__(self):
-        self.company = None
-        self.money = 0
-        self.workers = 0
-        self.production = {}
-
-    def create_company(self):
-        name = input("기업 이름 입력: ")
-        self.company = name
-        self.money = 500000
-        print(f"{name} 설립 완료! (초기 자본: 500,000원)")
-
-    def hire(self):
-        if not self.company:
-            print("기업이 없습니다")
-            return
-        count = int(input("고용할 직원 수: "))
-        cost = count * 10000
-        if cost > self.money:
-            print("자금 부족")
-            return
-        self.money -= cost
-        self.workers += count
-        print(f"{count}명 고용 완료")
-
-    def produce(self):
-        if self.workers == 0:
-            print("직원이 없습니다")
-            return
-        print("\n1. 반도체\n2. 자동차\n3. 배터리\n4. 농산물")
-        choice = input("제품 선택: ")
-        products = {"1": "반도체", "2": "자동차", "3": "배터리", "4": "농산물"}
-        if choice not in products:
-            print("잘못 입력")
-            return
-        product = products[choice]
-        amount = self.workers * 10
-        self.production[product] = self.production.get(product, 0) + amount
-        print(f"{product} {amount}개 생산")
-
-    def export(self, market):
-        if not self.production:
-            print("수출할 제품 없음")
-            return
-        print("\n보유 제품:", self.production)
-        product = input("수출 제품: ")
-        if product not in self.production or self.production[product] <= 0:
-            print("제품 없음")
-            return
-        amount = self.production[product]
-        price = market.get_price(product)
-        income = amount * price
-        self.money += income
-        self.production[product] = 0
-        print(f"{product} 수출 성공 (+{income:,}원)")
-
-    def status(self):
-        print(f"\n===== 기업 현황 =====\n기업: {self.company}\n자금: {self.money:,}원\n직원: {self.workers}명\n생산: {self.production}")
-
-
-class TechnologySystem:
-    def __init__(self):
-        self.tech_level = {"반도체": 1, "자동차": 1, "배터리": 1, "AI": 1, "친환경": 1}
-        self.research_point = 0
-
-    def invest_research(self, money):
-        cost = int(input("연구 투자 금액: "))
-        if cost > money:
-            print("자금 부족")
-            return money
-        money -= cost
-        gained = cost // 10000
-        self.research_point += gained
-        print(f"연구 포인트 +{gained}")
-        return money
-
-    def develop(self):
-        print("\n개발 가능한 기술:", self.tech_level)
-        target = input("개발할 기술: ")
-        if target not in self.tech_level:
-            print("없는 기술")
-            return
-        needed = self.tech_level[target] * 10
-        if self.research_point < needed:
-            print("연구 포인트 부족")
-            return
-        self.research_point -= needed
-        self.tech_level[target] += 1
-        print(f"{target} 기술 발전! 현재 Lv.{self.tech_level[target]}")
-
-    def show(self):
-        print(f"\n===== 🔬 기술 현황 =====\n기술: {self.tech_level}\n연구 포인트: {self.research_point}")
-
-
-class GovernmentSystem:
-    def __init__(self):
-        self.policy = {"tax": 10, "interest": 3, "subsidy": 0, "currency": 100}
-
-    def show_policy(self):
-        print(f"\n===== 🏛 정부 정책 =====\n세율: {self.policy['tax']}%\n금리: {self.policy['interest']}%\n보조금: {self.policy['subsidy']:,}원")
-
-
-class AICountrySystem:
-    def __init__(self):
-        self.countries = {
-            "미국": {"money": 5000000, "industry": 90, "export": 100},
-            "중국": {"money": 4500000, "industry": 95, "export": 120},
-            "독일": {"money": 3000000, "industry": 85, "export": 90},
-            "일본": {"money": 2800000, "industry": 80, "export": 80},
-            "한국": {"money": 2000000, "industry": 85, "export": 70},
-            "네덜란드": {"money": 1500000, "industry": 75, "export": 85}
-        }
-
-    def ai_turn(self):
-        print("\n🤖 AI 국가 행동")
-        for country, data in self.countries.items():
-            action = random.choice(["produce", "trade", "research"])
-            if action == "produce":
-                profit = data["industry"] * 10000
-                data["money"] += profit
-                data["export"] += 1
-                print(f"{country}: 생산 확대 +{profit:,}원")
-            elif action == "trade":
-                profit = random.randint(10000, 100000)
-                data["money"] += profit
-                data["export"] += 2
-                print(f"{country}: 무역 성공 +{profit:,}원")
-            else:
-                data["industry"] += 1
-                print(f"{country}: 기술 투자 산업력 증가")
-
-    def ranking(self):
-        print("\n===== 🌎 세계 경제 순위 =====")
-        ranking = sorted(self.countries.items(), key=lambda x: x[1]["money"], reverse=True)
-        for rank, (country, data) in enumerate(ranking, 1):
-            print(f"{rank}위 {country} | 자본:{data['money']:,}원 | 수출:{data['export']}")
-
-
-# ----------------------------------------------------
-# Game Engine Main
-# ----------------------------------------------------
-class GameEngine:
-    def __init__(self):
-        self.market = Market()
-        self.trade = TradeSystem(self.market)
-        self.event = EventSystem(self.market)
-        self.news = WorldNewsSystem(self.market)
-        self.finance = FinanceSystem()
-        self.company = CompanySystem()
-        self.tech = TechnologySystem()
-        self.gov = GovernmentSystem()
-        self.ai = AICountrySystem()
-        self.money = 1000000
-        self.turn = 1
-
-    def next_turn(self):
-        print(f"\n===== TURN {self.turn} =====")
-        self.turn += 1
-        self.ai.ai_turn()
-        if random.randint(1, 3) == 1:
-            self.news.generate_news()
-
-    def menu(self):
-        while True:
-            print(f"""
-===========================
-🌎 GLOBAL TRADE SIMULATOR
-현재 자금: {self.money:,}원
-===========================
-1. 시장 보기      2. 무역 거래
-3. 금융 관리      4. 기업 운영
-5. 기술 개발      6. 정부 정책
-7. 세계 이벤트    8. AI 국가 현황
-9. 턴 진행        0. 종료
-===========================
-""")
-            command = input("> ")
-            if command == "1":
-                self.market.show_products()
-            elif command == "2":
-                c = input("1. 구매 | 2. 판매 > ")
-                if c == "1":
-                    self.money = self.trade.buy("", self.money)
-                elif c == "2":
-                    self.money = self.trade.sell("", self.money)
-            elif command == "3":
-                c = input("1. 대출 | 2. 상환 | 3. 투자 | 4. 투자 결과 > ")
-                if c == "1":
-                    self.money = self.finance.borrow(self.money)
-                elif c == "2":
-                    self.money = self.finance.repay(self.money)
-                elif c == "3":
-                    self.money = self.finance.invest(self.money)
-                elif c == "4":
-                    self.money = self.finance.market_result(self.money)
-            elif command == "4":
-                c = input("1. 설립 | 2. 고용 | 3. 생산 | 4. 수출 | 5. 현황 > ")
-                if c == "1":
-                    self.company.create_company()
-                elif c == "2":
-                    self.company.hire()
-                elif c == "3":
-                    self.company.produce()
-                elif c == "4":
-                    self.company.export(self.market)
-                elif c == "5":
-                    self.company.status()
-            elif command == "5":
-                c = input("1. 연구 투자 | 2. 기술 개발 | 3. 기술 확인 > ")
-                if c == "1":
-                    self.money = self.tech.invest_research(self.money)
-                elif c == "2":
-                    self.tech.develop()
-                elif c == "3":
-                    self.tech.show()
-            elif command == "6":
-                self.gov.show_policy()
-            elif command == "7":
-                self.event.random_event()
-            elif command == "8":
-                self.ai.ranking()
-            elif command == "9":
-                self.next_turn()
-            elif command == "0":
-                print("게임 종료")
-                break
-            else:
-                print("잘못된 입력입니다.")
-
-if __name__ == "__main__":
-    game = GameEngine()
-    game.menu()
+# 기록 테이블
+if st.session_state.history:
+    st.markdown("---")
+    st.subheader("📜 지금까지의 무역 기록")
+    st.table(pd.DataFrame(st.session_state.history))
